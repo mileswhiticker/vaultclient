@@ -30,7 +30,7 @@ enum
 };
 
 // Temp hard-coded view shed properties
-static const udUInt2 ViewShedMapRes = udUInt2::create(2048, 2048);
+static const udUInt2 ViewShedMapRes = udUInt2::create(2048, 2048);// 2048);
 static const int ViewShedMapCount = 3;
 
 struct vcViewShedRenderContext
@@ -38,6 +38,8 @@ struct vcViewShedRenderContext
   // re-use this memory
   float *pDepthBuffer;
   vcTexture *pDepthTex;
+  vcTexture *pDummyColour;
+  vcFramebuffer *pFramebuffer;
 
   vdkRenderView *pRenderView; 
 };
@@ -127,6 +129,7 @@ struct vcRenderContext
     vcShader *pProgram;
     vcShaderSampler *uniform_depth;
     vcShaderSampler *uniform_shadowMapAtlas;
+    vcShaderSampler *uniform_colour;
     vcShaderConstantBuffer *uniform_params;
 
     struct
@@ -136,6 +139,8 @@ struct vcRenderContext
       udFloat4 visibleColour;
       udFloat4 notVisibleColour;
       udFloat4 nearFarPlane; // .zw unused
+      udFloat4x4 view;
+      udFloat4 eyeSpaceViewShedPosition;
     } params;
 
   } shadowShader;
@@ -224,7 +229,9 @@ udResult vcRender_Init(vcState *pProgramState, vcRenderContext **ppRenderContext
   UD_ERROR_NULL(pRenderContext, udR_MemoryAllocationFailure);
 
   pRenderContext->viewShedRenderingContext.pDepthBuffer = udAllocType(float, ViewShedMapRes.x * ViewShedMapRes.y, udAF_Zero);
-  UD_ERROR_CHECK(vcTexture_Create(&pRenderContext->viewShedRenderingContext.pDepthTex, ViewShedMapRes.x, ViewShedMapRes.y, nullptr, vcTextureFormat_D32F, vcTFM_Nearest, false, vcTWM_Clamp, vcTCF_Dynamic));
+  UD_ERROR_CHECK(vcTexture_Create(&pRenderContext->viewShedRenderingContext.pDepthTex, ViewShedMapRes.x, ViewShedMapRes.y, nullptr, vcTextureFormat_D32F, vcTFM_Nearest, false, vcTWM_Repeat, vcTCF_Dynamic));
+  UD_ERROR_CHECK(vcTexture_Create(&pRenderContext->viewShedRenderingContext.pDummyColour, ViewShedMapRes.x, ViewShedMapRes.y, nullptr, vcTextureFormat_BGRA8, vcTFM_Nearest, false, vcTWM_Repeat, vcTCF_Dynamic));
+  UD_ERROR_IF(!vcFramebuffer_Create(&pRenderContext->viewShedRenderingContext.pFramebuffer, pRenderContext->viewShedRenderingContext.pDummyColour, pRenderContext->viewShedRenderingContext.pDepthTex), udR_InternalError);
 
   UD_ERROR_IF(!vcShader_CreateFromText(&pRenderContext->udRenderContext.presentShader.pProgram, g_udVertexShader, g_udFragmentShader, vcP3UV2VertexLayout), udR_InternalError);
   UD_ERROR_IF(!vcShader_CreateFromText(&pRenderContext->visualizationShader.pProgram, g_VisualizationVertexShader, g_VisualizationFragmentShader, vcP3UV2VertexLayout), udR_InternalError);
@@ -244,6 +251,7 @@ udResult vcRender_Init(vcState *pProgramState, vcRenderContext **ppRenderContext
   UD_ERROR_IF(!vcShader_Bind(pRenderContext->shadowShader.pProgram), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetSamplerIndex(&pRenderContext->shadowShader.uniform_depth, pRenderContext->shadowShader.pProgram, "u_depth"), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetSamplerIndex(&pRenderContext->shadowShader.uniform_shadowMapAtlas, pRenderContext->shadowShader.pProgram, "u_shadowMapAtlas"), udR_InternalError);
+  UD_ERROR_IF(!vcShader_GetSamplerIndex(&pRenderContext->shadowShader.uniform_colour, pRenderContext->shadowShader.pProgram, "u_colour"), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetConstantBuffer(&pRenderContext->shadowShader.uniform_params, pRenderContext->shadowShader.pProgram, "u_params", sizeof(pRenderContext->shadowShader.params)), udR_InternalError);
 
   UD_ERROR_IF(!vcShader_Bind(pRenderContext->skyboxShaderPanorama.pProgram), udR_InternalError);
@@ -346,6 +354,8 @@ udResult vcRender_Destroy(vcState *pProgramState, vcRenderContext **ppRenderCont
 
 epilogue:
   vcTexture_Destroy(&pRenderContext->viewShedRenderingContext.pDepthTex);
+  vcTexture_Destroy(&pRenderContext->viewShedRenderingContext.pDummyColour);
+  vcFramebuffer_Destroy(&pRenderContext->viewShedRenderingContext.pFramebuffer);
 
   vcTexture_Destroy(&pRenderContext->udRenderContext.pColourTex);
   vcTexture_Destroy(&pRenderContext->udRenderContext.pDepthTex);
@@ -720,6 +730,7 @@ void vcRender_ApplyViewShed(vcRenderContext *pRenderContext)
   vcShader_Bind(pRenderContext->shadowShader.pProgram);
   vcShader_BindTexture(pRenderContext->shadowShader.pProgram, pRenderContext->pDepthTexture[0], 0, pRenderContext->shadowShader.uniform_depth);
   vcShader_BindTexture(pRenderContext->shadowShader.pProgram, pRenderContext->viewShedRenderingContext.pDepthTex, 1, pRenderContext->shadowShader.uniform_shadowMapAtlas);
+  vcShader_BindTexture(pRenderContext->shadowShader.pProgram, pRenderContext->viewShedRenderingContext.pDummyColour, 2, pRenderContext->shadowShader.uniform_colour);
 
   vcShader_BindConstantBuffer(pRenderContext->udRenderContext.presentShader.pProgram, pRenderContext->shadowShader.uniform_params, &pRenderContext->shadowShader.params, sizeof(pRenderContext->shadowShader.params));
 
@@ -730,9 +741,6 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
 {
   if (renderData.viewSheds.length == 0)
     return;
-
-  vcGLState_SetDepthStencilMode(vcGLSDM_Always, false);
-  vcGLState_SetBlendMode(vcGLSBM_Additive);
 
   pRenderContext->shadowShader.params.inverseProjection = udFloat4x4::create(udInverse(pProgramState->pCamera->matrices.projection));
 
@@ -752,27 +760,86 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
     settings.fieldOfView = pViewShedData->fieldOfView;
     shadowRenderCamera.position = pViewShedData->position;
 
-    for (int i = 0; i < ViewShedMapCount; ++i)
+    if (renderData.models.length > 0)
     {
-      float rot = (UD_DEG2RADf(360.0f) / ViewShedMapCount) * i;
-      shadowRenderCamera.eulerRotation = udDouble3::create(-rot, 0, 0);
-      vcCamera_UpdateMatrices(&shadowRenderCamera, settings, nullptr, udFloat2::create((float)ViewShedMapRes.x, (float)ViewShedMapRes.y), nullptr);
+      for (int i = 0; i < ViewShedMapCount; ++i)
+      {
+        float rot = (UD_DEG2RADf(360.0f) / ViewShedMapCount) * i;
+        shadowRenderCamera.eulerRotation = udDouble3::create(-rot, 0, 0);
+        vcCamera_UpdateMatrices(&shadowRenderCamera, settings, nullptr, udFloat2::create((float)ViewShedMapRes.x, (float)ViewShedMapRes.y), nullptr);
 
-      // configure UD render to only render into portion of buffer
-      vdkRenderView_SetTargetsWithPitch(pProgramState->pVDKContext, pRenderContext->viewShedRenderingContext.pRenderView, nullptr, 0, pRenderContext->viewShedRenderingContext.pDepthBuffer + (i * (ViewShedMapRes.x / ViewShedMapCount)), 0, ViewShedMapRes.x * 4);
-      vdkRenderView_SetMatrix(pProgramState->pVDKContext, pRenderContext->viewShedRenderingContext.pRenderView, vdkRVM_Projection, shadowRenderCamera.matrices.projectionUD.a);
+        // configure UD render to only render into portion of buffer
+        vdkRenderView_SetTargetsWithPitch(pProgramState->pVDKContext, pRenderContext->viewShedRenderingContext.pRenderView, nullptr, 0, pRenderContext->viewShedRenderingContext.pDepthBuffer + (i * (ViewShedMapRes.x / ViewShedMapCount)), 0, ViewShedMapRes.x * 4);
+        vdkRenderView_SetMatrix(pProgramState->pVDKContext, pRenderContext->viewShedRenderingContext.pRenderView, vdkRVM_Projection, shadowRenderCamera.matrices.projectionUD.a);
 
-      // render UD
-      vcRender_RenderUD(pProgramState, pRenderContext, pRenderContext->viewShedRenderingContext.pRenderView, &shadowRenderCamera, renderData, false);
+        // render UD
+        vcRender_RenderUD(pProgramState, pRenderContext, pRenderContext->viewShedRenderingContext.pRenderView, &shadowRenderCamera, renderData, false);
 
-      pRenderContext->shadowShader.params.shadowMapVP[i] = udFloat4x4::create(shadowRenderCamera.matrices.projectionUD * (shadowRenderCamera.matrices.view * udInverse(pProgramState->pCamera->matrices.view)));
+        pRenderContext->shadowShader.params.shadowMapVP[i] = udFloat4x4::create(shadowRenderCamera.matrices.projectionUD * (shadowRenderCamera.matrices.view * udInverse(pProgramState->pCamera->matrices.view)));
+      }
+
+      vcTexture_UploadPixels(pRenderContext->viewShedRenderingContext.pDepthTex, pRenderContext->viewShedRenderingContext.pDepthBuffer, ViewShedMapRes.x, ViewShedMapRes.y);
     }
 
+    if (renderData.polyModels.length > 0)
+    {
+      vcGLState_SetBlendMode(vcGLSBM_None);
+      vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_None);
+      vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true);
+
+      vcGLState_SetViewport(0, 0, ViewShedMapRes.x, ViewShedMapRes.y);
+      vcFramebuffer_Bind(pRenderContext->viewShedRenderingContext.pFramebuffer, (renderData.models.length == 0) ? vcFramebufferClearOperation_All : vcFramebufferClearOperation_None);
+
+      for (int i = 0; i < ViewShedMapCount; ++i)
+      {
+        float rot = (UD_DEG2RADf(360.0f) / ViewShedMapCount) * i;
+        shadowRenderCamera.eulerRotation = udDouble3::create(-rot, 0, 0);
+        vcCamera_UpdateMatrices(&shadowRenderCamera, settings, nullptr, udFloat2::create((float)ViewShedMapRes.x, (float)ViewShedMapRes.y), nullptr);
+
+        uint32_t offset = uint32_t(0.5f + i * (ViewShedMapRes.x / ViewShedMapCount));
+        uint32_t width = uint32_t(0.5f + ViewShedMapRes.x / ViewShedMapCount);
+        vcGLState_SetViewport(offset, 0, width, ViewShedMapRes.y);
+        vcGLState_Scissor(offset, 0, offset + width, ViewShedMapRes.y);
+
+        // hmmm
+        udDouble4x4 viewProjection = shadowRenderCamera.matrices.projection * shadowRenderCamera.matrices.view;
+
+        for (size_t p = 0; p < renderData.polyModels.length; ++p)
+        {
+          vcRenderPolyInstance *pInstance = &renderData.polyModels[p];
+
+          if (p == 1)
+            continue;
+
+          //if (pInstance->insideOut)
+          //  vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_Front);
+
+          if (pInstance->renderType == vcRenderPolyInstance::RenderType_Polygon)
+            vcPolygonModel_Render(pInstance->pModel, pInstance->worldMat, viewProjection, vcPMP_Shadows, pInstance->pDiffuseOverride);
+          else if (pInstance->renderType == vcRenderPolyInstance::RenderType_SceneLayer)
+            vcSceneLayerRenderer_Render(pInstance->pSceneLayer, pInstance->worldMat, viewProjection, shadowRenderCamera.position, ViewShedMapRes, nullptr, true);
+
+          //if (pInstance->insideOut)
+          //  vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_None);
+        }
+
+        // TODO: duplicate
+        pRenderContext->shadowShader.params.shadowMapVP[i] = udFloat4x4::create(viewProjection * udInverse(pProgramState->pCamera->matrices.view));
+      }
+    }
+
+    pRenderContext->shadowShader.params.view = udFloat4x4::create(pProgramState->pCamera->matrices.view);
+    pRenderContext->shadowShader.params.eyeSpaceViewShedPosition = udFloat4::create(pProgramState->pCamera->matrices.view * udDouble4::create(pViewShedData->position, 1.0));
     pRenderContext->shadowShader.params.nearFarPlane = udFloat4::create(pViewShedData->nearFarPlane.x, pViewShedData->nearFarPlane.y, 0.0f, 0.0f);
     pRenderContext->shadowShader.params.visibleColour = pViewShedData->visibleColour;
     pRenderContext->shadowShader.params.notVisibleColour = pViewShedData->notVisibleColour;
-    vcTexture_UploadPixels(pRenderContext->viewShedRenderingContext.pDepthTex, pRenderContext->viewShedRenderingContext.pDepthBuffer, ViewShedMapRes.x, ViewShedMapRes.y);
 
+    vcGLState_SetDepthStencilMode(vcGLSDM_Always, false);
+    vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_None);
+    vcGLState_SetBlendMode(vcGLSBM_Additive);
+
+    vcFramebuffer_Bind(pRenderContext->pFramebuffer[1]); // assumed this is the target
+    vcGLState_SetViewport(0, 0, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
     vcRender_ApplyViewShed(pRenderContext);
   }
 
@@ -858,6 +925,8 @@ void vcRenderTransparentGeometry(vcState *pProgramState, vcRenderContext *pRende
   }
 }
 
+bool debugDepth = false;
+
 void vcRender_BeginFrame(vcState *pProgramState, vcRenderContext *pRenderContext, vcRenderData &renderData)
 {
   udUnused(pProgramState);
@@ -865,6 +934,10 @@ void vcRender_BeginFrame(vcState *pProgramState, vcRenderContext *pRenderContext
 
   renderData.pSceneTexture = pRenderContext->pTexture[1];
   renderData.sceneScaling = udFloat2::one();
+
+
+  if (debugDepth)
+    renderData.pSceneTexture = pRenderContext->viewShedRenderingContext.pDummyColour;
 
   // TODO (EVC-835): fix scene scaling
   // udFloat2::create(float(pRenderContext->originalSceneResolution.x) / pRenderContext->sceneResolution.x, float(pRenderContext->originalSceneResolution.y) / pRenderContext->sceneResolution.y);

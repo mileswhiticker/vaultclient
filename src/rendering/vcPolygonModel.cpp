@@ -16,6 +16,7 @@ enum vcPolygonModelShaderType
 {
   vcPMST_P3N3UV2_Opaque,
   vcPMST_P3N3UV2_FlatColour,
+  vcPMST_P3N3UV2_DepthOnly,
 
   vcPMST_Count
 };
@@ -377,12 +378,21 @@ udResult vcPolygonModel_Render(vcPolygonModel *pModel, const udDouble4x4 &modelM
 
   udResult result = udR_Success;
 
+  if (passType == vcPMP_Shadows)
+  {
+    //glColorMask(0,0,0,0);
+  }
+
   for (int i = 0; i < pModel->meshCount; ++i)
   {
     vcPolygonModelMesh *pModelMesh = &pModel->pMeshes[i];
     vcPolygonModelShader *pPolygonShader = &gShaders[pModelMesh->materialID];
+
+    // conditionally override
     if (passType == vcPMP_ColourOnly)
       pPolygonShader = &gShaders[vcPMST_P3N3UV2_FlatColour];
+    else if (passType == vcPMP_Shadows)
+      pPolygonShader = &gShaders[vcPMST_P3N3UV2_DepthOnly];
 
     vcShader_Bind(pPolygonShader->pShader);
 
@@ -452,6 +462,10 @@ udResult vcPolygonModel_CreateShaders()
 
   pPolygonShader = &gShaders[vcPMST_P3N3UV2_FlatColour];
   UD_ERROR_IF(!vcShader_CreateFromText(&pPolygonShader->pShader, g_PolygonP3N3UV2VertexShader, g_FlatColour_FragmentShader, vcP3N3UV2VertexLayout), udR_InternalError);
+  UD_ERROR_IF(!vcShader_GetConstantBuffer(&pPolygonShader->pEveryObjectConstantBuffer, pPolygonShader->pShader, "u_EveryObject", sizeof(vcPolygonModelShader::everyObject)), udR_InternalError);
+
+  pPolygonShader = &gShaders[vcPMST_P3N3UV2_DepthOnly];
+  UD_ERROR_IF(!vcShader_CreateFromText(&pPolygonShader->pShader, g_PolygonP3N3UV2VertexShader, g_DepthOnly_FragmentShader, vcP3N3UV2VertexLayout), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetConstantBuffer(&pPolygonShader->pEveryObjectConstantBuffer, pPolygonShader->pShader, "u_EveryObject", sizeof(vcPolygonModelShader::everyObject)), udR_InternalError);
 
   result = udR_Success;

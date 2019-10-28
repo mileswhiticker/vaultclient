@@ -2259,6 +2259,12 @@ void vcRenderWindow(vcState *pProgramState)
     ImGui::End();
   }
 
+  extern bool debugDepth;
+  if (ImGui::GetIO().KeysDown[SDL_SCANCODE_O])
+    debugDepth = true;
+  else if (ImGui::GetIO().KeysDown[SDL_SCANCODE_P])
+    debugDepth = false;
+
   if (!pProgramState->hasContext)
   {
     vcMain_ShowLoginWindow(pProgramState);
