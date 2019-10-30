@@ -781,7 +781,14 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
       vcTexture_UploadPixels(pRenderContext->viewShedRenderingContext.pDepthTex, pRenderContext->viewShedRenderingContext.pDepthBuffer, ViewShedMapRes.x, ViewShedMapRes.y);
     }
 
-    if (renderData.polyModels.length > 0)
+    bool renderPolygons = false;
+    for (size_t p = 0; p < renderData.polyModels.length && !renderPolygons; ++p)
+    {
+      vcRenderPolyInstance *pInstance = &renderData.polyModels[p];
+      renderPolygons = pInstance->castsShadows;
+    }
+
+    if (renderPolygons)
     {
       vcGLState_SetBlendMode(vcGLSBM_None);
       vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_None);
@@ -807,8 +814,7 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
         for (size_t p = 0; p < renderData.polyModels.length; ++p)
         {
           vcRenderPolyInstance *pInstance = &renderData.polyModels[p];
-
-          if (p == 1)
+          if (!pInstance->castsShadows)
             continue;
 
           //if (pInstance->insideOut)
@@ -836,7 +842,7 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
 
     vcGLState_SetDepthStencilMode(vcGLSDM_Always, false);
     vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_None);
-    vcGLState_SetBlendMode(vcGLSBM_Additive);
+    vcGLState_SetBlendMode(vcGLSBM_Interpolative);
 
     vcFramebuffer_Bind(pRenderContext->pFramebuffer[1]); // assumed this is the target
     vcGLState_SetViewport(0, 0, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
@@ -937,7 +943,7 @@ void vcRender_BeginFrame(vcState *pProgramState, vcRenderContext *pRenderContext
 
 
   if (debugDepth)
-    renderData.pSceneTexture = pRenderContext->viewShedRenderingContext.pDummyColour;
+    renderData.pSceneTexture = pRenderContext->viewShedRenderingContext.pDepthTex;
 
   // TODO (EVC-835): fix scene scaling
   // udFloat2::create(float(pRenderContext->originalSceneResolution.x) / pRenderContext->sceneResolution.x, float(pRenderContext->originalSceneResolution.y) / pRenderContext->sceneResolution.y);

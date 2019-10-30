@@ -226,9 +226,9 @@ void main()
   float isInMap1 = float(shadowMapClip1.x > 0 && shadowMapClip1.x < 1 && shadowMapClip1.y > 0 && shadowMapClip1.y < 1 && shadowMapClip1.z > 0 && shadowMapClip1.z < 1);
   float isInMap2 = float(shadowMapClip2.x > 0 && shadowMapClip2.x < 1 && shadowMapClip2.y > 0 && shadowMapClip2.y < 1 && shadowMapClip2.z > 0 && shadowMapClip2.z < 1);
 
-  vec3 shadowMapUV0 = vec3((0.0 / MAP_COUNT) + shadowMapClip0.x / MAP_COUNT, shadowMapClip0.y, biasDepth0);
-  vec3 shadowMapUV1 = vec3((1.0 / MAP_COUNT) + shadowMapClip1.x / MAP_COUNT, shadowMapClip1.y, biasDepth1);
-  vec3 shadowMapUV2 = vec3((2.0 / MAP_COUNT) + shadowMapClip2.x / MAP_COUNT, shadowMapClip2.y, biasDepth2);
+  vec3 shadowMapUV0 = vec3((0.0 / MAP_COUNT) + shadowMapClip0.x / MAP_COUNT, 1.0 - shadowMapClip0.y, biasDepth0);
+  vec3 shadowMapUV1 = vec3((1.0 / MAP_COUNT) + shadowMapClip1.x / MAP_COUNT, 1.0 - shadowMapClip1.y, biasDepth1);
+  vec3 shadowMapUV2 = vec3((2.0 / MAP_COUNT) + shadowMapClip2.x / MAP_COUNT, 1.0 - shadowMapClip2.y, biasDepth2);
 
   sampleUV = mix(sampleUV, shadowMapUV0, isInMap0);
   sampleUV = mix(sampleUV, shadowMapUV1, isInMap1);
@@ -249,13 +249,17 @@ void main()
 
     float ndotl = (1.0 - abs(dot(eyeNormal, eyeLightDir)));
     float linearBias = mix(0.025, 0.0185, (u_nearFarPlane.y - 100.0) / 1400.0)  * ndotl;
-    if (length(eyeNormal) == 0.0) // UD has no normals
+    if (worldNormal.w == 0.0) // UD has no normals
       linearBias = 0.0;
 
-    if (linearizeDepth(shadowMapDepth) < linearizeDepth(sampleUV.z) - linearBias)
+    if (linearizeDepth(shadowMapDepth * 0.5 + 0.5) < linearizeDepth(sampleUV.z) - linearBias)
       col = u_notVisibleColour;
+
+    //col.xyz += eyeNormal.xyz * 0.000001;
+    //col.xyz = col.xyz * 0.000001 + vec3(pow(shadowMapDepth * 0.5 + 0.5, 100.0));
   }
 
+col.w = 1.0;
   out_Colour = vec4(col.xyz * col.w, 1.0); //additive
 }
 
