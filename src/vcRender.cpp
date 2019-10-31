@@ -31,7 +31,7 @@ enum
 
 // Temp hard-coded view shed properties
 static const int ViewShedMapCount = 3;
-static const udUInt2 ViewShedMapRes = udUInt2::create(640 * ViewShedMapCount, 2048);
+static const udUInt2 ViewShedMapRes = udUInt2::create(640 * ViewShedMapCount, 1920);
 
 struct vcViewShedRenderContext
 {
@@ -129,7 +129,6 @@ struct vcRenderContext
     vcShader *pProgram;
     vcShaderSampler *uniform_depth;
     vcShaderSampler *uniform_shadowMapAtlas;
-    vcShaderSampler *uniform_colour;
     vcShaderConstantBuffer *uniform_params;
 
     struct
@@ -139,8 +138,6 @@ struct vcRenderContext
       udFloat4 visibleColour;
       udFloat4 notVisibleColour;
       udFloat4 nearFarPlane; // .zw unused
-      udFloat4x4 view;
-      udFloat4 eyeSpaceViewShedPosition;
     } params;
 
   } shadowShader;
@@ -251,7 +248,6 @@ udResult vcRender_Init(vcState *pProgramState, vcRenderContext **ppRenderContext
   UD_ERROR_IF(!vcShader_Bind(pRenderContext->shadowShader.pProgram), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetSamplerIndex(&pRenderContext->shadowShader.uniform_depth, pRenderContext->shadowShader.pProgram, "u_depth"), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetSamplerIndex(&pRenderContext->shadowShader.uniform_shadowMapAtlas, pRenderContext->shadowShader.pProgram, "u_shadowMapAtlas"), udR_InternalError);
-  UD_ERROR_IF(!vcShader_GetSamplerIndex(&pRenderContext->shadowShader.uniform_colour, pRenderContext->shadowShader.pProgram, "u_colour"), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetConstantBuffer(&pRenderContext->shadowShader.uniform_params, pRenderContext->shadowShader.pProgram, "u_params", sizeof(pRenderContext->shadowShader.params)), udR_InternalError);
 
   UD_ERROR_IF(!vcShader_Bind(pRenderContext->skyboxShaderPanorama.pProgram), udR_InternalError);
@@ -730,7 +726,6 @@ void vcRender_ApplyViewShed(vcRenderContext *pRenderContext)
   vcShader_Bind(pRenderContext->shadowShader.pProgram);
   vcShader_BindTexture(pRenderContext->shadowShader.pProgram, pRenderContext->pDepthTexture[0], 0, pRenderContext->shadowShader.uniform_depth);
   vcShader_BindTexture(pRenderContext->shadowShader.pProgram, pRenderContext->viewShedRenderingContext.pDepthTex, 1, pRenderContext->shadowShader.uniform_shadowMapAtlas);
-  vcShader_BindTexture(pRenderContext->shadowShader.pProgram, pRenderContext->viewShedRenderingContext.pDummyColour, 2, pRenderContext->shadowShader.uniform_colour);
 
   vcShader_BindConstantBuffer(pRenderContext->udRenderContext.presentShader.pProgram, pRenderContext->shadowShader.uniform_params, &pRenderContext->shadowShader.params, sizeof(pRenderContext->shadowShader.params));
 
@@ -840,8 +835,6 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
       }
     }
 
-    pRenderContext->shadowShader.params.view = udFloat4x4::create(pProgramState->pCamera->matrices.view);
-    pRenderContext->shadowShader.params.eyeSpaceViewShedPosition = udFloat4::create(pProgramState->pCamera->matrices.view * udDouble4::create(pViewShedData->position, 1.0));
     pRenderContext->shadowShader.params.nearFarPlane = udFloat4::create(pViewShedData->nearFarPlane.x, pViewShedData->nearFarPlane.y, 0.0f, 0.0f);
     pRenderContext->shadowShader.params.visibleColour = pViewShedData->visibleColour;
     pRenderContext->shadowShader.params.notVisibleColour = pViewShedData->notVisibleColour;
