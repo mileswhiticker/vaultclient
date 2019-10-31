@@ -210,25 +210,23 @@ void main()
   vec4 shadowMapCoord1 = u_shadowMapVP[1] * vec4(fragEyePosition.xyz, 1.0);
   vec4 shadowMapCoord2 = u_shadowMapVP[2] * vec4(fragEyePosition.xyz, 1.0);
 
-  vec3 shadowMapClip0 = shadowMapCoord0.xyz / shadowMapCoord0.w;
-  vec3 shadowMapClip1 = shadowMapCoord1.xyz / shadowMapCoord1.w;
-  vec3 shadowMapClip2 = shadowMapCoord2.xyz / shadowMapCoord2.w;
+  // scale and bias, leave .w
+  vec3 shadowMapClip0 = ((shadowMapCoord0.xyz / shadowMapCoord0.w) * vec3(0.5)) + vec3(0.5);
+  vec3 shadowMapClip1 = ((shadowMapCoord1.xyz / shadowMapCoord1.w) * vec3(0.5)) + vec3(0.5);
+  vec3 shadowMapClip2 = ((shadowMapCoord2.xyz / shadowMapCoord2.w) * vec3(0.5)) + vec3(0.5);
 
-  shadowMapClip0 = (shadowMapClip0 * vec3(0.5)) + vec3(0.5);
-  shadowMapClip1 = (shadowMapClip1 * vec3(0.5)) + vec3(0.5);
-  shadowMapClip2 = (shadowMapClip2 * vec3(0.5)) + vec3(0.5);
-
-  float biasDepth0 = ((shadowMapCoord0.z - bias) / shadowMapCoord0.w) * 0.5 + 0.5;
-  float biasDepth1 = ((shadowMapCoord1.z - bias) / shadowMapCoord1.w) * 0.5 + 0.5;
-  float biasDepth2 = ((shadowMapCoord2.z - bias) / shadowMapCoord2.w) * 0.5 + 0.5;
+  // bias before .w divide
+  float depthBias0 = ((shadowMapCoord0.z - bias) / shadowMapCoord0.w) * 0.5 + 0.5;
+  float depthBias1 = ((shadowMapCoord1.z - bias) / shadowMapCoord1.w) * 0.5 + 0.5;
+  float depthBias2 = ((shadowMapCoord2.z - bias) / shadowMapCoord2.w) * 0.5 + 0.5;
 
   float isInMap0 = float(shadowMapClip0.x > 0 && shadowMapClip0.x < 1 && shadowMapClip0.y > 0 && shadowMapClip0.y < 1 && shadowMapClip0.z > 0 && shadowMapClip0.z < 1);
   float isInMap1 = float(shadowMapClip1.x > 0 && shadowMapClip1.x < 1 && shadowMapClip1.y > 0 && shadowMapClip1.y < 1 && shadowMapClip1.z > 0 && shadowMapClip1.z < 1);
   float isInMap2 = float(shadowMapClip2.x > 0 && shadowMapClip2.x < 1 && shadowMapClip2.y > 0 && shadowMapClip2.y < 1 && shadowMapClip2.z > 0 && shadowMapClip2.z < 1);
 
-  vec3 shadowMapUV0 = vec3((0.0 / MAP_COUNT) + shadowMapClip0.x / MAP_COUNT, 1.0 - shadowMapClip0.y, biasDepth0);
-  vec3 shadowMapUV1 = vec3((1.0 / MAP_COUNT) + shadowMapClip1.x / MAP_COUNT, 1.0 - shadowMapClip1.y, biasDepth1);
-  vec3 shadowMapUV2 = vec3((2.0 / MAP_COUNT) + shadowMapClip2.x / MAP_COUNT, 1.0 - shadowMapClip2.y, biasDepth2);
+  vec3 shadowMapUV0 = vec3((0.0 / MAP_COUNT) + shadowMapClip0.x / MAP_COUNT, 1.0 - shadowMapClip0.y, depthBias0);
+  vec3 shadowMapUV1 = vec3((1.0 / MAP_COUNT) + shadowMapClip1.x / MAP_COUNT, 1.0 - shadowMapClip1.y, depthBias1);
+  vec3 shadowMapUV2 = vec3((2.0 / MAP_COUNT) + shadowMapClip2.x / MAP_COUNT, 1.0 - shadowMapClip2.y, depthBias2);
 
   sampleUV = mix(sampleUV, shadowMapUV0, isInMap0);
   sampleUV = mix(sampleUV, shadowMapUV1, isInMap1);
@@ -239,7 +237,7 @@ void main()
     // fragment is inside the view shed bounds
     col = u_visibleColour;
 
-    float shadowMapDepth = texture(u_shadowMapAtlas, sampleUV.xy).x;
+    float shadowMapDepth = texture(u_shadowMapAtlas, sampleUV.xy).x * 0.5 + 0.5;
 
     vec4 worldNormal = texture(u_colour, sampleUV.xy);
     worldNormal.xyz = worldNormal.xyz * vec3(2.0) - vec3(1.0);
@@ -252,7 +250,7 @@ void main()
     if (worldNormal.w == 0.0) // UD has no normals
       linearBias = 0.0;
 
-    if (linearizeDepth(shadowMapDepth * 0.5 + 0.5) < linearizeDepth(sampleUV.z) - linearBias)
+    if (linearizeDepth(shadowMapDepth) < linearizeDepth(sampleUV.z) - linearBias)
       col = u_notVisibleColour;
   }
 
@@ -864,18 +862,11 @@ const char *const g_DepthOnly_FragmentShader = FRAG_HEADER R"shader(
   in vec2 v_depth;
   in vec3 v_normal;
 
-  float linearizeDepth(float depth)
-  {
-    float nearPlane = 0.01;//u_screenParams.z;
-    float farPlane = 100.0;//u_screenParams.w;
-    return (2.0 * nearPlane) / (farPlane + nearPlane - depth * (farPlane - nearPlane));
-  }
-
   void main()
   {
     float depth = (v_depth.x / v_depth.y) * 0.5 + 0.5;
-    out_Colour = vec4(v_normal * vec3(0.5) + vec3(0.5), 1.0);//vec4(pow(depth, 1.0), 0, 0, 1.0);
-    gl_FragDepth = depth;//linearizeDepth(depth);
+    out_Colour = vec4(v_normal * vec3(0.5) + vec3(0.5), 1.0);
+    gl_FragDepth = depth * 2.0 - 1.0; // adjust to [-1, 1] to match UD
   }
 )shader";
 

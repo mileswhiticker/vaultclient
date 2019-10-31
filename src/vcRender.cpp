@@ -739,7 +739,7 @@ void vcRender_ApplyViewShed(vcRenderContext *pRenderContext)
 
 void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *pRenderContext, vcRenderData &renderData)
 {
-  if (renderData.viewSheds.length == 0)
+  if (renderData.viewSheds.length == 0 || (renderData.polyModels.length == 0 && renderData.models.length == 0))
     return;
 
   pRenderContext->shadowShader.params.inverseProjection = udFloat4x4::create(udInverse(pProgramState->pCamera->matrices.projection));
@@ -813,8 +813,9 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
         vcGLState_SetViewport(offset, 0, width, ViewShedMapRes.y);
         vcGLState_Scissor(offset, 0, offset + width, ViewShedMapRes.y);
 
-        // hmmm
-        udDouble4x4 viewProjection = shadowRenderCamera.matrices.projection * shadowRenderCamera.matrices.view;
+        // vertically flip the image so that it matches the orientation of the UD buffers flippyness
+        udDouble4x4 viewProjection = shadowRenderCamera.matrices.projectionUD * shadowRenderCamera.matrices.view;
+        udDouble4x4 flippedViewProjeciton = udDouble4x4::scaleNonUniform(1.0, -1.0, 1.0) * viewProjection;
 
         for (size_t p = 0; p < renderData.polyModels.length; ++p)
         {
@@ -826,9 +827,9 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
           //  vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_Front);
 
           if (pInstance->renderType == vcRenderPolyInstance::RenderType_Polygon)
-            vcPolygonModel_Render(pInstance->pModel, pInstance->worldMat, viewProjection, vcPMP_Shadows, pInstance->pDiffuseOverride);
+            vcPolygonModel_Render(pInstance->pModel, pInstance->worldMat, flippedViewProjeciton, vcPMP_Shadows, pInstance->pDiffuseOverride);
           else if (pInstance->renderType == vcRenderPolyInstance::RenderType_SceneLayer)
-            vcSceneLayerRenderer_Render(pInstance->pSceneLayer, pInstance->worldMat, viewProjection, shadowRenderCamera.position, ViewShedMapRes, nullptr, true);
+            vcSceneLayerRenderer_Render(pInstance->pSceneLayer, pInstance->worldMat, flippedViewProjeciton, shadowRenderCamera.position, ViewShedMapRes, nullptr, true);
 
           //if (pInstance->insideOut)
           //  vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_None);
