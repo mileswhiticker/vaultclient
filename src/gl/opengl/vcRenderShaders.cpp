@@ -254,12 +254,9 @@ void main()
 
     if (linearizeDepth(shadowMapDepth * 0.5 + 0.5) < linearizeDepth(sampleUV.z) - linearBias)
       col = u_notVisibleColour;
-
-    //col.xyz += eyeNormal.xyz * 0.000001;
-    //col.xyz = col.xyz * 0.000001 + vec3(pow(shadowMapDepth * 0.5 + 0.5, 100.0));
   }
 
-col.w = 1.0;
+  col.w = 1.0;
   out_Colour = vec4(col.xyz * col.w, 1.0); //additive
 }
 

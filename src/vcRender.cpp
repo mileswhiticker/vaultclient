@@ -30,8 +30,8 @@ enum
 };
 
 // Temp hard-coded view shed properties
-static const udUInt2 ViewShedMapRes = udUInt2::create(2048, 2048);// 2048);
 static const int ViewShedMapCount = 3;
+static const udUInt2 ViewShedMapRes = udUInt2::create(640 * ViewShedMapCount, 2048);
 
 struct vcViewShedRenderContext
 {
@@ -744,8 +744,10 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
 
   pRenderContext->shadowShader.params.inverseProjection = udFloat4x4::create(udInverse(pProgramState->pCamera->matrices.projection));
 
+  uint32_t width = ViewShedMapRes.x / ViewShedMapCount;
+
   if (pRenderContext->viewShedRenderingContext.pRenderView == nullptr)
-    vdkRenderView_Create(pProgramState->pVDKContext, &pRenderContext->viewShedRenderingContext.pRenderView, pRenderContext->udRenderContext.pRenderer, ViewShedMapRes.x / ViewShedMapCount, ViewShedMapRes.y);
+    vdkRenderView_Create(pProgramState->pVDKContext, &pRenderContext->viewShedRenderingContext.pRenderView, pRenderContext->udRenderContext.pRenderer, width, ViewShedMapRes.y);
 
   for (size_t v = 0; v < renderData.viewSheds.length; ++v)
   {
@@ -764,12 +766,16 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
     {
       for (int i = 0; i < ViewShedMapCount; ++i)
       {
-        float rot = (UD_DEG2RADf(360.0f) / ViewShedMapCount) * i;
+        double rot = (UD_DEG2RAD(360.0) / ViewShedMapCount) * i;
         shadowRenderCamera.eulerRotation = udDouble3::create(-rot, 0, 0);
-        vcCamera_UpdateMatrices(&shadowRenderCamera, settings, nullptr, udFloat2::create((float)ViewShedMapRes.x, (float)ViewShedMapRes.y), nullptr);
+        vcCamera_UpdateMatrices(&shadowRenderCamera, settings, nullptr, udFloat2::create(1.0f, 1.0f), nullptr); // forced aspect
+
+
+        uint32_t offset = i * (ViewShedMapRes.x / ViewShedMapCount);
+        
 
         // configure UD render to only render into portion of buffer
-        vdkRenderView_SetTargetsWithPitch(pProgramState->pVDKContext, pRenderContext->viewShedRenderingContext.pRenderView, nullptr, 0, pRenderContext->viewShedRenderingContext.pDepthBuffer + (i * (ViewShedMapRes.x / ViewShedMapCount)), 0, ViewShedMapRes.x * 4);
+        vdkRenderView_SetTargetsWithPitch(pProgramState->pVDKContext, pRenderContext->viewShedRenderingContext.pRenderView, nullptr, 0, pRenderContext->viewShedRenderingContext.pDepthBuffer + offset, 0, ViewShedMapRes.x * 4);
         vdkRenderView_SetMatrix(pProgramState->pVDKContext, pRenderContext->viewShedRenderingContext.pRenderView, vdkRVM_Projection, shadowRenderCamera.matrices.projectionUD.a);
 
         // render UD
@@ -801,10 +807,9 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
       {
         float rot = (UD_DEG2RADf(360.0f) / ViewShedMapCount) * i;
         shadowRenderCamera.eulerRotation = udDouble3::create(-rot, 0, 0);
-        vcCamera_UpdateMatrices(&shadowRenderCamera, settings, nullptr, udFloat2::create((float)ViewShedMapRes.x, (float)ViewShedMapRes.y), nullptr);
+        vcCamera_UpdateMatrices(&shadowRenderCamera, settings, nullptr, udFloat2::create(1.0f, 1.0f), nullptr); // forced aspect
 
-        uint32_t offset = uint32_t(0.5f + i * (ViewShedMapRes.x / ViewShedMapCount));
-        uint32_t width = uint32_t(0.5f + ViewShedMapRes.x / ViewShedMapCount);
+        uint32_t offset = i * (ViewShedMapRes.x / ViewShedMapCount);
         vcGLState_SetViewport(offset, 0, width, ViewShedMapRes.y);
         vcGLState_Scissor(offset, 0, offset + width, ViewShedMapRes.y);
 
